@@ -1,11 +1,12 @@
 #!/bin/bash
 
-# Universal setup script for bevy-debugger-mcp with Claude Code/Desktop
+# Universal setup script for bevy-debugger-mcp
+# Supports: Claude (Code/Desktop), Cline, Roo Code, Cursor, VS Code, Gemini/Qwen/Codex CLI
 # Run this after installing via any method (cargo, brew, manual)
 
 set -e
 
-echo "Setting up bevy-debugger-mcp for Claude..."
+echo "Setting up bevy-debugger-mcp..."
 
 # Find the bevy-debugger-mcp binary
 BINARY_PATH=""
@@ -31,7 +32,7 @@ else
     exit 1
 fi
 
-# Create symlinks for Claude Code compatibility
+# Create symlinks for compatibility
 echo "Creating compatibility symlinks..."
 mkdir -p ~/.local/bin
 ln -sf "$BINARY_PATH" ~/.local/bin/bevy-debugger-mcp
@@ -42,24 +43,12 @@ if [ ! -f "$HOME/.cargo/bin/bevy-debugger-mcp" ] && [ "$BINARY_PATH" != "$HOME/.
     ln -sf "$BINARY_PATH" ~/.cargo/bin/bevy-debugger-mcp
 fi
 
-# Setup Claude Code configuration
-CLAUDE_CODE_CONFIG="$HOME/.claude/mcp_settings.json"
-if [ -f "$CLAUDE_CODE_CONFIG" ]; then
-    echo "Found Claude Code config at: $CLAUDE_CODE_CONFIG"
-    if grep -q "bevy-debugger-mcp" "$CLAUDE_CODE_CONFIG"; then
-        echo "⚠️  bevy-debugger-mcp already configured in Claude Code"
-    else
-        echo "📝 Add this to your $CLAUDE_CODE_CONFIG:"
-    fi
-else
-    echo "📝 Create $CLAUDE_CODE_CONFIG with:"
-    mkdir -p ~/.claude
-fi
+# ---------------------------------------------------------
+# Configuration Blocks
+# ---------------------------------------------------------
 
-cat << EOF
-
-{
-  "mcpServers": {
+# JSON Config (Claude, Cline, Roo Code, etc.)
+CONFIG_JSON=$(cat << EOF
     "bevy-debugger-mcp": {
       "command": "$BINARY_PATH",
       "args": ["stdio"],
@@ -69,33 +58,120 @@ cat << EOF
         "BEVY_BRP_PORT": "15702"
       }
     }
+EOF
+)
+
+FULL_CONFIG_JSON=$(cat << EOF
+{
+  "mcpServers": {
+$CONFIG_JSON
   }
 }
 EOF
+)
 
-# Setup Claude Desktop configuration
-CLAUDE_DESKTOP_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
-if [ -f "$CLAUDE_DESKTOP_CONFIG" ]; then
+# TOML Config (Codex CLI)
+CONFIG_TOML=$(cat << EOF
+[mcp_servers.bevy-debugger-mcp]
+command = "$BINARY_PATH"
+args = ["stdio"]
+env = { RUST_LOG = "info", BEVY_BRP_HOST = "127.0.0.1", BEVY_BRP_PORT = "15702" }
+EOF
+)
+
+# ---------------------------------------------------------
+# Helper Functions
+# ---------------------------------------------------------
+
+# check_config <name> <path> <snippet> <instruction_hint>
+check_config() {
+    local name="$1"
+    local config_path="$2"
+    local snippet="$3"
+    local instructions="$4"
+
+    if [ -f "$config_path" ]; then
+        echo "--------- $name ---------"
+        echo "Found config at: $config_path"
+        if grep -q "bevy-debugger-mcp" "$config_path"; then
+            echo "⚠️  bevy-debugger-mcp already configured in $name"
+        else
+            echo "📝 $instructions"
+            echo "$snippet"
+        fi
+        echo ""
+    fi
+}
+
+echo ""
+echo "=== Configuration Check ==="
+echo ""
+
+# 1. Claude Code
+CLAUDE_CODE_CONFIG="$HOME/.claude/mcp_settings.json"
+if [ ! -f "$CLAUDE_CODE_CONFIG" ]; then
+    mkdir -p ~/.claude
+    echo "--------- Claude Code ---------"
+    echo "Creating new config at: $CLAUDE_CODE_CONFIG"
+    echo "$FULL_CONFIG_JSON" > "$CLAUDE_CODE_CONFIG"
+    echo "✅ Created Claude Code config"
     echo ""
-    echo "Found Claude Desktop config at: $CLAUDE_DESKTOP_CONFIG"
-    if grep -q "bevy-debugger-mcp" "$CLAUDE_DESKTOP_CONFIG"; then
-        echo "⚠️  bevy-debugger-mcp already configured in Claude Desktop"
-    else
-        echo "📝 Add the bevy-debugger-mcp section to your Claude Desktop config"
+else
+    check_config "Claude Code" "$CLAUDE_CODE_CONFIG" "$CONFIG_JSON" "Add the following to 'mcpServers' in your config"
+fi
+
+# 2. Claude Desktop (macOS)
+CLAUDE_DESKTOP_CONFIG="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+check_config "Claude Desktop (macOS)" "$CLAUDE_DESKTOP_CONFIG" "$CONFIG_JSON" "Add the following to 'mcpServers' in your config"
+
+# 3. Cline (VS Code Extension)
+# macOS
+CLINE_CONFIG_MAC="$HOME/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
+check_config "Cline (macOS)" "$CLINE_CONFIG_MAC" "$CONFIG_JSON" "Add the following to 'mcpServers' in your config"
+# Linux
+CLINE_CONFIG_LINUX="$HOME/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json"
+check_config "Cline (Linux)" "$CLINE_CONFIG_LINUX" "$CONFIG_JSON" "Add the following to 'mcpServers' in your config"
+
+# 4. Roo Code (VS Code Extension)
+# macOS
+ROO_CONFIG_MAC="$HOME/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json"
+check_config "Roo Code (macOS)" "$ROO_CONFIG_MAC" "$CONFIG_JSON" "Add the following to 'mcpServers' in your config"
+# Linux
+ROO_CONFIG_LINUX="$HOME/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json"
+check_config "Roo Code (Linux)" "$ROO_CONFIG_LINUX" "$CONFIG_JSON" "Add the following to 'mcpServers' in your config"
+
+# 5. Codex CLI
+CODEX_CONFIG="$HOME/.codex/config.toml"
+if [ -f "$CODEX_CONFIG" ]; then
+    check_config "Codex CLI" "$CODEX_CONFIG" "$CONFIG_TOML" "Append the following to your config file"
+else
+    # Check if directory exists, if so, we can suggest creating it
+    if [ -d "$HOME/.codex" ]; then
+         echo "--------- Codex CLI ---------"
+         echo "Found .codex directory but no config.toml."
+         echo "📝 Create $CODEX_CONFIG with the following content:"
+         echo "$CONFIG_TOML"
+         echo ""
     fi
 fi
 
+echo "=== Manual Configuration Instructions ==="
 echo ""
-echo "✅ Setup complete!"
+echo "If your tool's config was not found automatically, use the snippets below."
 echo ""
-echo "Symlinks created:"
-echo "  - ~/.local/bin/bevy-debugger-mcp -> $BINARY_PATH"
-if [ -L "$HOME/.cargo/bin/bevy-debugger-mcp" ]; then
-    echo "  - ~/.cargo/bin/bevy-debugger-mcp -> $BINARY_PATH"
-fi
+echo "--- JSON (VS Code, Cursor, Gemini/Qwen CLI, etc.) ---"
+echo "$FULL_CONFIG_JSON"
 echo ""
-echo "Next steps:"
-echo "1. Add the configuration above to your Claude config files"
-echo "2. Restart Claude Code or Claude Desktop"
-echo "3. Start your Bevy game with RemotePlugin enabled"
-echo "4. The bevy-debugger-mcp should now connect successfully"
+echo "--- TOML (Codex CLI) ---"
+echo "$CONFIG_TOML"
+echo ""
+echo "Specific Instructions:"
+echo "• VS Code (with MCP extension): Add to your User or Workspace settings.json under 'mcp.servers'."
+echo "• Cursor IDE: Go to Settings > Features > MCP > Add New MCP Server."
+echo "  - Name: bevy-debugger-mcp"
+echo "  - Type: stdio"
+echo "  - Command: $BINARY_PATH"
+echo "  - Args: stdio"
+echo "  - Env: RUST_LOG=info, BEVY_BRP_HOST=127.0.0.1, BEVY_BRP_PORT=15702"
+echo ""
+echo "✅ Setup complete! Symlinks created at ~/.local/bin/bevy-debugger-mcp"
